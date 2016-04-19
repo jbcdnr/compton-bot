@@ -1,10 +1,10 @@
 package compton
 
 import (
-	"bitbucket.org/mrd0ll4r/tbotapi"
+	"github.com/go-telegram-bot-api/telegram-bot-api"
 )
 
 // HandleUpdate take care of the update
-func HandleUpdate(update tbotapi.Update, api *tbotapi.TelegramBotAPI) {
+func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI) {
 	
 }

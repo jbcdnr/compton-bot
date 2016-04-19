@@ -2,8 +2,8 @@ package main
 
 import (
 	"./compton"
-	"bitbucket.org/mrd0ll4r/tbotapi"
 	"fmt"
+	"github.com/go-telegram-bot-api/telegram-bot-api"
 	"io/ioutil"
 	"log"
 	"os"
@@ -26,15 +26,24 @@ func main() {
 	log.Printf("API token: '%s'\n", apiToken)
 
 	// start the API connection
-	api, err := tbotapi.New(apiToken)
+	api, err := tgbotapi.NewBotAPI(apiToken)
+	if err != nil {
+		log.Panic(err)
+	}
+	api.Debug = true
+
+	// just to show its working
+	log.Printf("User ID: %d\n", api.Self.ID)
+	log.Printf("Bot Name: %s\n", api.Self.FirstName)
+	log.Printf("Bot Username: %s\n", api.Self.UserName)
+
+	config := tgbotapi.NewUpdate(0)
+	config.Timeout = 60
+	updatesChanel, err := api.GetUpdatesChan(config)
+
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	// just to show its working
-	log.Printf("User ID: %d\n", api.ID)
-	log.Printf("Bot Name: %s\n", api.Name)
-	log.Printf("Bot Username: %s\n", api.Username)
 
 	closed := make(chan struct{})
 	wg := &sync.WaitGroup{}
@@ -45,21 +54,16 @@ func main() {
 			select {
 			case <-closed:
 				return
-			case update := <-api.Updates:
-				if update.Error() != nil {
-					log.Printf("Update error: %s\n", update.Error())
-					continue
-				}
-
-				compton.HandleUpdate(update.Update(), api)
+			case update := <-updatesChanel:
+				compton.HandleUpdate(update, api)
 			}
 		}
 	}
 
-  // run concurent workers to handle Updates
-	NUMBER_HANDLERS := 4
-	wg.Add(NUMBER_HANDLERS)
-	for i := 0; i < NUMBER_HANDLERS; i++ {
+	// run concurent workers to handle Updates
+	numberHandler := 1
+	wg.Add(numberHandler)
+	for i := 0; i < numberHandler; i++ {
 		go updateHandler()
 	}
 
@@ -82,7 +86,6 @@ func main() {
 	fmt.Println("Closing...")
 
 	// always close the API first, let it clean up the update loop
-	api.Close() // this might take a while
 	close(closed)
 	wg.Wait()
 }
