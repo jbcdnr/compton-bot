@@ -1,13 +1,23 @@
 package compton
 
 import (
-  "time"
+	"gopkg.in/mgo.v2/bson"
+	"time"
 )
 
 // Transaction represents a purchase paid by someone for other people
 type Transaction struct {
-	Price   float64
-	PaidBy  string
-	PaidFor []string
-	Date    time.Time
+	ID      bson.ObjectId `bson:"_id,omitempty"`
+	Amount  float64       `bson:"amount"`
+	PaidBy  string        `bson:"paid_by"`
+	PaidFor []string      `bson:"paid_for"`
+	Date    time.Time     `bson:"timestamp"`
+}
+
+// Chat represents a money count for a group discussion
+type Chat struct {
+	ID           bson.ObjectId `bson:"_id,omitempty"`
+	ChatID       bson.ObjectId `bson:"chat_id"`
+	People       []string      `bson:"people"`
+	Transactions []Transaction `bson:"transactions"`
 }
