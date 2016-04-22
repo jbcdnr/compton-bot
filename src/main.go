@@ -4,6 +4,7 @@ import (
 	"./compton"
 	"fmt"
 	"github.com/go-telegram-bot-api/telegram-bot-api"
+	"gopkg.in/mgo.v2"
 	"io/ioutil"
 	"log"
 	"os"
@@ -45,17 +46,28 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// connect to MongoDB
+
+	mongoSession, err := mgo.Dial("localhost:27017")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer mongoSession.Close()
+
+	mongoSession.SetMode(mgo.Monotonic, true)
+
 	closed := make(chan struct{})
 	wg := &sync.WaitGroup{}
 
 	updateHandler := func() {
 		defer wg.Done()
+		mongoDocument := mongoSession.Copy().DB("test").C("compton")
 		for {
 			select {
 			case <-closed:
 				return
 			case update := <-updatesChanel:
-				compton.HandleUpdate(update, api)
+				compton.HandleUpdate(update, api, mongoDocument)
 			}
 		}
 	}
