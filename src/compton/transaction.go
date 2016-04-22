@@ -9,6 +9,7 @@ import (
 type Transaction struct {
 	ID      bson.ObjectId `bson:"_id,omitempty"`
 	Amount  float64       `bson:"amount"`
+	Author  string        `bson:"author"`
 	PaidBy  string        `bson:"paid_by"`
 	PaidFor []string      `bson:"paid_for"`
 	Date    time.Time     `bson:"timestamp"`
@@ -16,8 +17,9 @@ type Transaction struct {
 
 // Chat represents a money count for a group discussion
 type Chat struct {
-	ID           bson.ObjectId `bson:"_id,omitempty"`
-	ChatID       bson.ObjectId `bson:"chat_id"`
-	People       []string      `bson:"people"`
-	Transactions []Transaction `bson:"transactions"`
+	ID              bson.ObjectId `bson:"_id,omitempty"`
+	ChatID          bson.ObjectId `bson:"chat_id"`
+	People          []string      `bson:"people"`
+	NewTransactions []Transaction `bson:"new_transactions"`
+	Transactions    []Transaction `bson:"transactions"`
 }
