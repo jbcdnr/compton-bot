@@ -15,6 +15,15 @@ type Transaction struct {
 	Date    time.Time     `bson:"timestamp"`
 }
 
+// BuildingTransaction is a stage of build of Transaction
+type BuildingTransaction struct {
+	ID          bson.ObjectId `bson:"_id,omitempty"`
+	CallbackID  string        `bson:"callback_id"`
+	Stage       string        `bson:"stage"`
+	Transaction Transaction   `bson:"transaction"`
+	Date        time.Time     `bson:"timestamp"`
+}
+
 // Chat represents a money count for a group discussion
 type Chat struct {
 	ID              bson.ObjectId `bson:"_id,omitempty"`
