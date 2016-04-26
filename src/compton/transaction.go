@@ -1,7 +1,6 @@
 package compton
 
 import (
-	"gopkg.in/mgo.v2/bson"
 	"time"
 )
 
@@ -15,7 +14,26 @@ type Transaction struct {
 
 // Chat represents a money count for a group discussion
 type Chat struct {
-	ChatID       bson.ObjectId `bson:"chat_id"`
+	ChatID       int64         `bson:"chat_id"`
 	People       []string      `bson:"people"`
 	Transactions []Transaction `bson:"transactions"`
+}
+
+type CallbacksHandler struct {
+	Replies   []ReplyAction    `bson:"replies"`
+	Callbacks []CallbackAction `bson:"callbacks"`
+}
+
+// TODO add timestamp for cleaning
+type ReplyAction struct {
+	MessageID   int         `bson:"message_id"`
+	Action      string      `bson:"action"`
+	Transaction Transaction `bson:"transaction"`
+}
+
+type CallbackAction struct {
+	MessageID   int         `bson:"message_id"`
+	Action      string      `bson:"action"`
+	ChatID      int64       `bson:"chat_id"`
+	Transaction Transaction `bson:"transaction"`
 }
