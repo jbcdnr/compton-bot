@@ -144,6 +144,7 @@ func onCallback(query tgbotapi.CallbackQuery, api *tgbotapi.BotAPI, db *mgo.Coll
 		return errors.New("Could not find the associated callback in DB")
 	}
 	callback := callbacks.Callbacks[0]
+	db.Update(bson.M{"main": true, "callbacks.message_id": callbackID}, bson.M{"$pull": bson.M{ "callbacks": bson.M{"message_id": callbackID}}})
 
 	switch callback.Action {
 	case "paidBy":
@@ -197,7 +198,7 @@ func onAmountInput(action ReplyAction, message tgbotapi.Message, api *tgbotapi.B
 	
 	transaction := action.Transaction
 	transaction.Amount = amount
-	promptPaidFor(transaction, message.Chat.ID, api, db)
+	promptPaidFor(0, transaction, message.Chat.ID, api, db)
 }
 
 func onPaidBy(callback CallbackAction, data string, api *tgbotapi.BotAPI, db *mgo.Collection) {
@@ -246,11 +247,11 @@ func onAddPaidFor(callback CallbackAction, data string, api *tgbotapi.BotAPI, db
 	} else {
 		transaction := callback.Transaction
 		transaction.PaidFor = append(transaction.PaidFor, data) // TODO check contained
-		promptPaidFor(transaction, callback.ChatID, api, db)
+		promptPaidFor(callback.MessageID, transaction, callback.ChatID, api, db)
 	}
 }
 
-func promptPaidFor(transaction Transaction, chatID int64, api *tgbotapi.BotAPI, db *mgo.Collection) {
+func promptPaidFor(promptID int, transaction Transaction, chatID int64, api *tgbotapi.BotAPI, db *mgo.Collection) {
 	
 	// retrieve the chat
 	chat := Chat{}
@@ -263,8 +264,13 @@ func promptPaidFor(transaction Transaction, chatID int64, api *tgbotapi.BotAPI, 
 	if addedSoFar != "" {
 		addedSoFar = addedSoFar + "..."
 	}
-	sent, _ := api.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("Who did %s pay for ? %s", transaction.PaidBy, addedSoFar)))
-	
+	text := fmt.Sprintf("Who did %s pay for ? %s", transaction.PaidBy, addedSoFar)
+	if promptID == 0 {
+		sent, _ := api.Send(tgbotapi.NewMessage(chatID, text))
+		promptID = sent.MessageID
+	} else {
+		api.Send(tgbotapi.NewEditMessageText(chatID, promptID, text))
+	}
 	
 	// create the answer keyboard with only new ones
 	buttons := make([]tgbotapi.InlineKeyboardButton, 0, len(chat.People) + 1)
@@ -277,22 +283,22 @@ func promptPaidFor(transaction Transaction, chatID int64, api *tgbotapi.BotAPI, 
 			}
 		}
 		if ! contained {
-			buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData(people, fmt.Sprintf("%d/%s", sent.MessageID, people)))
+			buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData(people, fmt.Sprintf("%d/%s", promptID, people)))
 		}
 	}
 	extra := "Done"
 	if len(transaction.PaidFor) == 0 {
 		extra = "All"
 	}
-	buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData(extra, fmt.Sprintf("%d/%s", sent.MessageID, extra)))
+	buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData(extra, fmt.Sprintf("%d/%s", promptID, extra)))
 	
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(buttons)
 	log.Println(keyboard)
-	keyboardUpdate := tgbotapi.NewEditMessageReplyMarkup(chatID, sent.MessageID, keyboard)
+	keyboardUpdate := tgbotapi.NewEditMessageReplyMarkup(chatID, promptID, keyboard)
 
 	api.Send(keyboardUpdate)
 	
-	newAction := CallbackAction{Action: "addPaidFor", MessageID: sent.MessageID, ChatID: chat.ChatID, Transaction: transaction}
+	newAction := CallbackAction{Action: "addPaidFor", MessageID: promptID, ChatID: chat.ChatID, Transaction: transaction}
 	addCallbackAction(newAction, db)
 }
 
