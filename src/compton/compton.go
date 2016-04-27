@@ -111,6 +111,7 @@ func onReply(message tgbotapi.Message, api *tgbotapi.BotAPI, db *mgo.Collection)
 		return errors.New("Could not find the associated reply message in DB")
 	}
 	replyCallback := callbacks.Replies[0]
+	db.Update(bson.M{"main": true, "replies.message_id": message.MessageID}, bson.M{"$pull": bson.M{ "replies": bson.M{"message_id": message.MessageID}}})
 
 	switch replyCallback.Action {
 	case "addPeople":
