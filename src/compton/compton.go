@@ -32,6 +32,37 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 		}
 
 		switch update.Message.Command() {
+		case "balance":
+			balance, err := balanceForChat(chatID, db)
+			if err != nil {
+				api.Send(tgbotapi.NewMessage(chatID, "Could not find a compton in this chat"))
+				log.Println(err)
+				return
+			}
+			
+			strs := make([]string, 0, len(balance))
+			for people, bal := range balance {
+				strs = append(strs, fmt.Sprintf("- %s: %.2f$", people, bal))
+			}
+			message := strings.Join(strs, "\n")
+			api.Send(tgbotapi.NewMessage(chatID, message))
+		
+		case "solve":
+			balance, err := balanceForChat(chatID, db)
+			if err != nil {
+				api.Send(tgbotapi.NewMessage(chatID, "Could not find a compton in this chat"))
+				log.Println(err)
+				return
+			}
+			reimbursment := findOptimalArrangment(balance)
+			strs := make([]string, 0, 20)
+			for giver, pairs := range reimbursment {
+				for _, pair := range pairs {
+					strs = append(strs, fmt.Sprintf("- %s gives %.2f$ to %s", giver, pair.Amount, pair.People))
+				}
+			}
+			api.Send(tgbotapi.NewMessage(chatID, strings.Join(strs, "\n")))
+		
 		case "addPurchase":
 
 			// retrieve the chat information from DB or create it
@@ -101,7 +132,7 @@ func onReply(message tgbotapi.Message, api *tgbotapi.BotAPI, db *mgo.Collection)
 	questionID := message.ReplyToMessage.MessageID
 	callbacks := CallbacksHandler{}
 
-	// TODO should remove the object from the DB and clean
+	// TODO should remove old object
 	err = db.Find(bson.M{"main": true, "replies.message_id": questionID}).Select(bson.M{"replies.$": true}).One(&callbacks)
 	if err != nil {
 		log.Println(err)
@@ -307,4 +338,29 @@ func sendPeoplePrompt(message tgbotapi.Message, api *tgbotapi.BotAPI, db *mgo.Co
 	sent, _ := api.Send(newMessageForcedAnswer(message.Chat.ID, "Type the name of the people to add or /done"))
 	action := ReplyAction{MessageID: sent.MessageID, Action: "addPeople"}
 	addReplyAction(action, db)
+}
+
+func balanceForChat(chatID int64, db *mgo.Collection) (balances map[string]float64, err error) {
+	balances = make(map[string]float64)
+	
+	// retrieve the chat
+	chat := Chat{}
+	err = db.Find(bson.M{"chat_id": chatID}).One(&chat)
+	if err != nil {
+		return
+	}
+	
+	for _, people := range chat.People {
+		balances[people] = 0
+	}
+	
+	for _, transaction := range chat.Transactions {
+		balances[transaction.PaidBy] += transaction.Amount
+		part := transaction.Amount / float64(len(transaction.PaidFor))
+		for _, p := range transaction.PaidFor {
+			balances[p] -= part
+		}
+	}
+	
+	return
 }
