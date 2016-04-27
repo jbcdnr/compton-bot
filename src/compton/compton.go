@@ -63,6 +63,25 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 			}
 			api.Send(tgbotapi.NewMessage(chatID, strings.Join(strs, "\n")))
 		
+		case "whoShouldPay":
+			balances, err := balanceForChat(chatID, db)
+			if err != nil {
+				api.Send(tgbotapi.NewMessage(chatID, "Could not find a compton in this chat"))
+				log.Println(err)
+				return
+			}
+			
+			shouldPay := ""
+			smallest := 0.0
+			for people, bal := range balances {
+				if shouldPay == "" || bal < smallest {
+					shouldPay = people
+					smallest = bal
+				}
+			}
+			
+			api.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("%s should pay.", shouldPay)))
+		
 		case "addPurchase":
 
 			// retrieve the chat information from DB or create it
