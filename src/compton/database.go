@@ -29,3 +29,7 @@ func addReplyAction(action ReplyAction, db *mgo.Collection) {
 func addCallbackAction(action CallbackAction, db *mgo.Collection) error {
 	return db.Update(bson.M{"main": true}, bson.M{"$push": bson.M{"callbacks": action}})
 }
+
+func addTransaction(chatID int64, transaction Transaction, db *mgo.Collection) error {
+	return db.Update(bson.M{"chat_id": chatID}, bson.M{ "$push": bson.M{"transactions": transaction}})
+}

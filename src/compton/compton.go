@@ -97,16 +97,6 @@ func newMessageForcedAnswer(chatID int64, text string) (message tgbotapi.Message
 	return
 }
 
-/*
-	callbacks in database with date (to clean)
-	- answerMessage: messageId -> action with (ChatID, Transaction?, Message)
-	- callback: callbackdata (id/args) -> action with (ChatID, Transaction?, data-args)
-		* get people who paid
-		* amount paid
-		* new paid
-		* done
-*/
-
 func onReply(message tgbotapi.Message, api *tgbotapi.BotAPI, db *mgo.Collection) (err error) {
 	questionID := message.ReplyToMessage.MessageID
 	callbacks := CallbacksHandler{}
@@ -201,9 +191,13 @@ func onNewPeople(action ReplyAction, message tgbotapi.Message, api *tgbotapi.Bot
 func onAmountInput(action ReplyAction, message tgbotapi.Message, api *tgbotapi.BotAPI, db *mgo.Collection) {
 	amount, err := strconv.ParseFloat(message.Text, 64)
 	if err != nil {
-		// TODO	
+		log.Printf("Error parsing amount: %s", err)
+		api.Send(tgbotapi.NewMessage(message.Chat.ID, "I did not understand the amount."))
 	}
-	_ = amount
+	
+	transaction := action.Transaction
+	transaction.Amount = amount
+	promptPaidFor(transaction, message.Chat.ID, api, db)
 }
 
 func onPaidBy(callback CallbackAction, data string, api *tgbotapi.BotAPI, db *mgo.Collection) {
@@ -227,8 +221,79 @@ func onPaidBy(callback CallbackAction, data string, api *tgbotapi.BotAPI, db *mg
 	addReplyAction(action, db)
 }
 
+// TODO should always edit the same message
 func onAddPaidFor(callback CallbackAction, data string, api *tgbotapi.BotAPI, db *mgo.Collection) {
+	if data == "Done" {
+		err := addTransaction(callback.ChatID, callback.Transaction, db)
+		if err == nil {
+			api.Send(tgbotapi.NewMessage(callback.ChatID, "Added the new transaction"))
+		}
+	} else if data == "All" {
+		// retrieve the chat
+		chat := Chat{}
+		err := db.Find(bson.M{"chat_id": callback.ChatID}).One(&chat)
+		if err != nil {
+			log.Println(err)
+		}
+		
+		transaction := callback.Transaction
+		transaction.PaidFor = chat.People
+		
+		err = addTransaction(callback.ChatID, transaction, db)
+		if err == nil {
+			api.Send(tgbotapi.NewMessage(callback.ChatID, "Added the new transaction")) // TODO pretty print
+		}
+	} else {
+		transaction := callback.Transaction
+		transaction.PaidFor = append(transaction.PaidFor, data) // TODO check contained
+		promptPaidFor(transaction, callback.ChatID, api, db)
+	}
+}
 
+func promptPaidFor(transaction Transaction, chatID int64, api *tgbotapi.BotAPI, db *mgo.Collection) {
+	
+	// retrieve the chat
+	chat := Chat{}
+	err := db.Find(bson.M{"chat_id": chatID}).One(&chat)
+	if err != nil {
+		log.Println(err)
+	}
+	
+	addedSoFar := strings.Join(transaction.PaidFor, ", ")
+	if addedSoFar != "" {
+		addedSoFar = addedSoFar + "..."
+	}
+	sent, _ := api.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("Who did %s pay for ? %s", transaction.PaidBy, addedSoFar)))
+	
+	
+	// create the answer keyboard with only new ones
+	buttons := make([]tgbotapi.InlineKeyboardButton, 0, len(chat.People) + 1)
+	for _, people := range chat.People {
+		contained := false
+		for _, p := range transaction.PaidFor {
+			if p == people {
+				contained = true
+				break
+			}
+		}
+		if ! contained {
+			buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData(people, fmt.Sprintf("%d/%s", sent.MessageID, people)))
+		}
+	}
+	extra := "Done"
+	if len(transaction.PaidFor) == 0 {
+		extra = "All"
+	}
+	buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData(extra, fmt.Sprintf("%d/%s", sent.MessageID, extra)))
+	
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(buttons)
+	log.Println(keyboard)
+	keyboardUpdate := tgbotapi.NewEditMessageReplyMarkup(chatID, sent.MessageID, keyboard)
+
+	api.Send(keyboardUpdate)
+	
+	newAction := CallbackAction{Action: "addPaidFor", MessageID: sent.MessageID, ChatID: chat.ChatID, Transaction: transaction}
+	addCallbackAction(newAction, db)
 }
 
 func sendPeoplePrompt(message tgbotapi.Message, api *tgbotapi.BotAPI, db *mgo.Collection) {
