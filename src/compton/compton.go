@@ -1,14 +1,13 @@
 package compton
 
 import (
-	"errors"
 	"fmt"
 	"github.com/go-telegram-bot-api/telegram-bot-api"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 	"log"
-	"strings"
 	"strconv"
+	"strings"
 )
 
 // HandleUpdate take care of the update
@@ -16,370 +15,283 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 
 	if update.Message != nil {
 
-		if update.Message.ReplyToMessage != nil {
-			err := onReply(*update.Message, api, db) // TODO care about err ?
-			if err != nil {
-				log.Println(err)
-			}
-			return
-		}
+		message := update.Message
+		chatID := message.Chat.ID
+		userID := message.From.ID
 
-		chatID := update.Message.Chat.ID
-
-		_, err := addChatToDatabase(chatID, db)
+		// retrieve the chat information from DB or create it
+		chatData := Chat{}
+		err := db.Find(bson.M{"chat_id": chatID}).One(&chatData)
 		if err != nil {
-			log.Fatal(err)
+			empty := Chat{}
+			empty.ChatID = chatID
+			db.Upsert(
+				bson.M{"chat_id": chatID},
+				bson.M{"$setOnInsert": empty})
+			err = db.Find(bson.M{"chat_id": chatID}).One(&chatData)
+			if err != nil {
+				log.Fatal(err)
+			}
 		}
 
-		switch update.Message.Command() {
-		case "balance":
-			balance, err := balanceForChat(chatID, db)
-			if err != nil {
-				api.Send(tgbotapi.NewMessage(chatID, "Could not find a compton in this chat"))
-				log.Println(err)
-				return
-			}
-			
-			strs := make([]string, 0, len(balance))
-			for people, bal := range balance {
-				strs = append(strs, fmt.Sprintf("- %s: %.2f$", people, bal))
-			}
-			message := strings.Join(strs, "\n")
-			api.Send(tgbotapi.NewMessage(chatID, message))
-		
-		case "solve":
-			balance, err := balanceForChat(chatID, db)
-			if err != nil {
-				api.Send(tgbotapi.NewMessage(chatID, "Could not find a compton in this chat"))
-				log.Println(err)
-				return
-			}
-			reimbursment := findOptimalArrangment(balance)
-			strs := make([]string, 0, 20)
-			for giver, pairs := range reimbursment {
-				for _, pair := range pairs {
-					strs = append(strs, fmt.Sprintf("- %s gives %.2f$ to %s", giver, pair.Amount, pair.People))
+		// handle direct init command
+		if message.IsCommand() {
+
+			switch message.Command() {
+
+			case "balance":
+				balance := chatData.balance()
+
+				strs := make([]string, 0, len(balance))
+				for people, bal := range balance {
+					strs = append(strs, fmt.Sprintf("- %s: %.2f$", people, bal))
 				}
-			}
-			api.Send(tgbotapi.NewMessage(chatID, strings.Join(strs, "\n")))
-		
-		case "whoShouldPay":
-			balances, err := balanceForChat(chatID, db)
-			if err != nil {
-				api.Send(tgbotapi.NewMessage(chatID, "Could not find a compton in this chat"))
-				log.Println(err)
+				message := strings.Join(strs, "\n")
+				api.Send(tgbotapi.NewMessage(chatID, message))
 				return
-			}
-			
-			shouldPay := ""
-			smallest := 0.0
-			for people, bal := range balances {
-				if shouldPay == "" || bal < smallest {
-					shouldPay = people
-					smallest = bal
+
+			case "solve":
+				balance := chatData.balance()
+				reimbursment := findOptimalArrangment(balance)
+				strs := make([]string, 0, 20)
+				for giver, pairs := range reimbursment {
+					for _, pair := range pairs {
+						strs = append(strs, fmt.Sprintf("- %s gives %.2f$ to %s", giver, pair.Amount, pair.People))
+					}
 				}
-			}
-			
-			api.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("%s should pay.", shouldPay)))
-		
-		case "addPurchase":
+				api.Send(tgbotapi.NewMessage(chatID, strings.Join(strs, "\n")))
+				return
 
-			// retrieve the chat information from DB or create it
-			chat := Chat{}
-			err = db.Find(bson.M{"chat_id": chatID}).One(&chat)
-			if err != nil {
-				addChatToDatabase(chatID, db)
-				err = db.Find(bson.M{"chat_id": chatID}).One(&chat)
-				if err != nil {
-					log.Fatal(err)
+			case "whoShouldPay":
+				balance := chatData.balance()
+
+				shouldPay := ""
+				smallest := -1.0
+				for people, bal := range balance {
+					if shouldPay == "" || bal < smallest {
+						shouldPay = people
+						smallest = bal
+					}
 				}
-			}
 
-			// propose to add people to tricount if nobody
-			if len(chat.People) == 0 {
-				pleaseAddPeople := "Nobody is registered for Compton in this chat, please run /addPeople"
-				api.Send(tgbotapi.NewMessage(update.Message.Chat.ID, pleaseAddPeople))
+				api.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("%s should pay.", shouldPay)))
 				return
-			}
 
-			promptText := "Who paid the expense ?"
-			prompt := tgbotapi.NewMessage(update.Message.Chat.ID, promptText)
-			sentPrompt, err := api.Send(prompt)
-			if err != nil {
-				log.Println(err)
+			case "list":
+
+				strs := make([]string, len(chatData.Transactions))
+				for i, t := range chatData.Transactions {
+					strs[i] = fmt.Sprintf("%d. %s", i+1, t)
+				}
+				api.Send(tgbotapi.NewMessage(chatID, strings.Join(strs, "\n")))
+
+			case "addPurchase":
+
+				promptText := "Who paid the expense ?"
+				prompt := tgbotapi.NewMessage(update.Message.Chat.ID, promptText)
+
+				// create the answer keyboard with everybody
+				buttons := make([]tgbotapi.KeyboardButton, 0, len(chatData.People))
+				for _, people := range chatData.People {
+					buttons = append(buttons, tgbotapi.NewKeyboardButton(people))
+				}
+				keyboard := tgbotapi.NewReplyKeyboard(buttons)
+				prompt.ReplyMarkup = keyboard
+
+				_, err := api.Send(prompt)
+
+				if err == nil {
+					interaction := Interaction{}
+					interaction.Author = userID
+					interaction.Type = "addPurchase/paidBy"
+					interaction.Transaction = &Transaction{}
+					addInteractionToChat(interaction, chatID, db)
+				}
+
 				return
+
+			case "addPeople":
+
+				log.Println("addPeople received")
+				api.Send(tgbotapi.NewMessage(chatID, "Type the name of a person to add or /done."))
+				interaction := Interaction{}
+				interaction.Author = userID
+				interaction.Type = "addPeople"
+				addInteractionToChat(interaction, chatID, db)
+				return
+
 			}
-
-			// create the answer keyboard with everybody
-			buttons := make([]tgbotapi.InlineKeyboardButton, 0, len(chat.People))
-			for _, people := range chat.People {
-				buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData(people, fmt.Sprintf("%d/%s", sentPrompt.MessageID, people)))
-			}
-			keyboard := tgbotapi.NewInlineKeyboardMarkup(buttons)
-			keyboardUpdate := tgbotapi.NewEditMessageReplyMarkup(update.Message.Chat.ID, sentPrompt.MessageID, keyboard)
-
-			api.Send(keyboardUpdate)
-
-			action := CallbackAction{ChatID: chatID, Action: "paidBy", MessageID: sentPrompt.MessageID}
-			err = addCallbackAction(action, db)
-			if err != nil {
-				log.Println(err)
-			}
-
-		case "addPeople":
-			sendPeoplePrompt(*update.Message, api, db)
-		default:
-			// TODO sorry did not understand
 		}
-	}
 
-	if update.CallbackQuery != nil {
-		err := onCallback(*update.CallbackQuery, api, db)
-		if err != nil {
-			log.Println(err)
-		}
-	}
-}
-
-func newMessageForcedAnswer(chatID int64, text string) (message tgbotapi.MessageConfig) {
-	message = tgbotapi.NewMessage(chatID, text)
-	message.ReplyMarkup = tgbotapi.ForceReply{ForceReply: true, Selective: true}
-	return
-}
-
-func onReply(message tgbotapi.Message, api *tgbotapi.BotAPI, db *mgo.Collection) (err error) {
-	questionID := message.ReplyToMessage.MessageID
-	callbacks := CallbacksHandler{}
-
-	// TODO should remove old object
-	err = db.Find(bson.M{"main": true, "replies.message_id": questionID}).Select(bson.M{"replies.$": true}).One(&callbacks)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	if len(callbacks.Replies) != 1 {
-		return errors.New("Could not find the associated reply message in DB")
-	}
-	replyCallback := callbacks.Replies[0]
-	db.Update(bson.M{"main": true, "replies.message_id": message.MessageID}, bson.M{"$pull": bson.M{ "replies": bson.M{"message_id": message.MessageID}}})
-
-	switch replyCallback.Action {
-	case "addPeople":
-		onNewPeople(replyCallback, message, api, db)
-	case "inputAmount":
-		onAmountInput(replyCallback, message, api, db)
-	}
-
-	return
-}
-
-func onCallback(query tgbotapi.CallbackQuery, api *tgbotapi.BotAPI, db *mgo.Collection) (err error) {
-	
-	splits := strings.SplitN(query.Data, "/", 2)
-	if len(splits) != 2 {
-		return errors.New("Bad format for callback id and args")
-	}
-	callbackID, err := strconv.Atoi(splits[0])
-	if err != nil {
-		return err
-	}
-	arg := splits[1]
-
-	// TODO should remove the object from the DB and clean
-	callbacks := CallbacksHandler{}
-	err = db.Find(bson.M{"main": true, "callbacks.message_id": callbackID}).Select(bson.M{"callbacks.$": true}).One(&callbacks)
-	if err != nil {
-		return
-	}
-	if len(callbacks.Callbacks) != 1 {
-		return errors.New("Could not find the associated callback in DB")
-	}
-	callback := callbacks.Callbacks[0]
-	db.Update(bson.M{"main": true, "callbacks.message_id": callbackID}, bson.M{"$pull": bson.M{ "callbacks": bson.M{"message_id": callbackID}}})
-
-	switch callback.Action {
-	case "paidBy":
-		onPaidBy(callback, arg, api, db)
-	case "addPaidFor":
-		onAddPaidFor(callback, arg, api, db)
-	}
-
-	return
-}
-
-func onNewPeople(action ReplyAction, message tgbotapi.Message, api *tgbotapi.BotAPI, db *mgo.Collection) {
-	chatID := message.Chat.ID
-
-	if message.IsCommand() {
-		if message.Command() == "done" {
-			people, _ := getPeopleInChat(chatID, db)
-			all := strings.Join(people, "\n- ")
-			// TODO better formating
-			api.Send(tgbotapi.NewMessage(message.Chat.ID, "We are done adding people. Here is a list: \n- "+all))
-		} else {
-			api.Send(tgbotapi.NewMessage(message.Chat.ID, "A name should not start with /"))
-		}
-		return
-	}
-
-	peopleToAdd := message.Text
-	if peopleToAdd != "" {
-		err := addPeopleToChat(peopleToAdd, chatID, db)
-		if err == nil {
-			answer := fmt.Sprintf("Added %s to the Compton", peopleToAdd)
-			api.Send(tgbotapi.NewMessage(message.Chat.ID, answer))
-			sendPeoplePrompt(message, api, db)
-		} else {
-			log.Printf("Error adding %s to chat %d: %s", peopleToAdd, chatID, err)
-			api.Send(tgbotapi.NewMessage(message.Chat.ID, "An error occured when adding the new person"))
-		}
-	} else {
-		api.Send(tgbotapi.NewMessage(message.Chat.ID, "We only accept non empty names"))
-		sendPeoplePrompt(message, api, db)
-	}
-
-}
-
-func onAmountInput(action ReplyAction, message tgbotapi.Message, api *tgbotapi.BotAPI, db *mgo.Collection) {
-	amount, err := strconv.ParseFloat(message.Text, 64)
-	if err != nil {
-		log.Printf("Error parsing amount: %s", err)
-		api.Send(tgbotapi.NewMessage(message.Chat.ID, "I did not understand the amount."))
-	}
-	
-	transaction := action.Transaction
-	transaction.Amount = amount
-	promptPaidFor(0, transaction, message.Chat.ID, api, db)
-}
-
-func onPaidBy(callback CallbackAction, data string, api *tgbotapi.BotAPI, db *mgo.Collection) {
-	people, _ := getPeopleInChat(callback.ChatID, db)
-	correctPeople := false
-	for _, p := range people {
-		if p == data {
-			correctPeople = true
-			break
-		}
-	}
-	if !correctPeople {
-		api.Send(tgbotapi.NewMessage(callback.ChatID, "Unknown people"))
-		return
-	} 
-
-	sent, _ := api.Send(newMessageForcedAnswer(callback.ChatID, fmt.Sprintf("How much did %s pay ?", data)))
-	transaction := callback.Transaction
-	transaction.PaidBy = data
-	action := ReplyAction{MessageID: sent.MessageID, Transaction: transaction, Action: "inputAmount"}
-	addReplyAction(action, db)
-}
-
-// TODO should always edit the same message
-func onAddPaidFor(callback CallbackAction, data string, api *tgbotapi.BotAPI, db *mgo.Collection) {
-	if data == "Done" {
-		err := addTransaction(callback.ChatID, callback.Transaction, db)
-		if err == nil {
-			api.Send(tgbotapi.NewMessage(callback.ChatID, "Added the new transaction"))
-		}
-	} else if data == "All" {
-		// retrieve the chat
-		chat := Chat{}
-		err := db.Find(bson.M{"chat_id": callback.ChatID}).One(&chat)
-		if err != nil {
-			log.Println(err)
-		}
-		
-		transaction := callback.Transaction
-		transaction.PaidFor = chat.People
-		
-		err = addTransaction(callback.ChatID, transaction, db)
-		if err == nil {
-			api.Send(tgbotapi.NewMessage(callback.ChatID, "Added the new transaction")) // TODO pretty print
-		}
-	} else {
-		transaction := callback.Transaction
-		transaction.PaidFor = append(transaction.PaidFor, data) // TODO check contained
-		promptPaidFor(callback.MessageID, transaction, callback.ChatID, api, db)
-	}
-}
-
-func promptPaidFor(promptID int, transaction Transaction, chatID int64, api *tgbotapi.BotAPI, db *mgo.Collection) {
-	
-	// retrieve the chat
-	chat := Chat{}
-	err := db.Find(bson.M{"chat_id": chatID}).One(&chat)
-	if err != nil {
-		log.Println(err)
-	}
-	
-	addedSoFar := strings.Join(transaction.PaidFor, ", ")
-	if addedSoFar != "" {
-		addedSoFar = addedSoFar + "..."
-	}
-	text := fmt.Sprintf("Who did %s pay for ? %s", transaction.PaidBy, addedSoFar)
-	if promptID == 0 {
-		sent, _ := api.Send(tgbotapi.NewMessage(chatID, text))
-		promptID = sent.MessageID
-	} else {
-		api.Send(tgbotapi.NewEditMessageText(chatID, promptID, text))
-	}
-	
-	// create the answer keyboard with only new ones
-	buttons := make([]tgbotapi.InlineKeyboardButton, 0, len(chat.People) + 1)
-	for _, people := range chat.People {
-		contained := false
-		for _, p := range transaction.PaidFor {
-			if p == people {
-				contained = true
+		// handle interactions
+		var interaction *Interaction
+		for _, inter := range chatData.Interactions {
+			if inter.Author == userID {
+				interaction = &inter
 				break
 			}
 		}
-		if ! contained {
-			buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData(people, fmt.Sprintf("%d/%s", promptID, people)))
+		if interaction == nil {
+			log.Printf("User replied to no question")
+			// TODO message failed
 		}
-	}
-	extra := "Done"
-	if len(transaction.PaidFor) == 0 {
-		extra = "All"
-	}
-	buttons = append(buttons, tgbotapi.NewInlineKeyboardButtonData(extra, fmt.Sprintf("%d/%s", promptID, extra)))
-	
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(buttons)
-	log.Println(keyboard)
-	keyboardUpdate := tgbotapi.NewEditMessageReplyMarkup(chatID, promptID, keyboard)
 
-	api.Send(keyboardUpdate)
-	
-	newAction := CallbackAction{Action: "addPaidFor", MessageID: promptID, ChatID: chat.ChatID, Transaction: transaction}
-	addCallbackAction(newAction, db)
+		switch interaction.Type {
+		case "addPeople":
+			if message.IsCommand() && message.Command() == "done" {
+				if len(chatData.People) == 0 {
+					api.Send(tgbotapi.NewMessage(chatID, "The list of people in the compton is empty"))
+				} else {
+					list := chatData.People
+					for i, p := range list {
+						list[i] = "- " + p
+					}
+					all := strings.Join(list, "\n")
+					api.Send(tgbotapi.NewMessage(chatID, "The list of people in the compton is:\n"+all))
+				}
+
+				removeInteractionsForUser(chatID, userID, db)
+
+				return
+			}
+
+			people := message.Text
+			if people == "" {
+				api.Send(tgbotapi.NewMessage(chatID, "The name must be non empty"))
+			} else {
+				addPeopleToChat(people, chatID, db)
+			}
+
+			api.Send(tgbotapi.NewMessage(chatID, "Type the name of another person to add or /done."))
+
+		case "addPurchase/paidBy":
+
+			people := message.Text
+			contained := false
+			for _, p := range chatData.People {
+				if p == people {
+					contained = true
+					break
+				}
+			}
+
+			if !contained {
+				// TODO error message
+				return
+			}
+
+			db.Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$set": bson.M{
+				"interactions.$.transaction.paid_by": people,
+				"interactions.$.type":                "addPurchase/amount"}})
+
+			mes := tgbotapi.NewMessage(chatID, "How much did "+people+" pay ?")
+			mes.ReplyMarkup = tgbotapi.NewHideKeyboard(true)
+			api.Send(mes)
+
+		case "addPurchase/amount":
+			amount, err := strconv.ParseFloat(message.Text, 64)
+			if err != nil {
+				log.Printf("Parse error: %s\n", err)
+				// TODO handle error
+			}
+
+			mes := tgbotapi.NewMessage(chatID, "Who did "+interaction.Transaction.PaidBy+" pay for ?")
+			mes.ReplyMarkup = keyboardWithPeople(chatData.People, interaction.Transaction)
+			sent, err := api.Send(mes)
+
+			if err != nil {
+				// TODO handle error
+			}
+
+			db.Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$set": bson.M{
+				"interactions.$.transaction.amount": amount,
+				"interactions.$.type":               "addPurchase/paidFor",
+				"interactions.$.last_message":       sent.MessageID}})
+
+		case "addPurchase/paidFor":
+
+			if message.IsCommand() {
+				switch message.Command() {
+				case "all":
+					interaction.Transaction.PaidFor = chatData.People
+					fallthrough
+				case "done":
+					if len(interaction.Transaction.PaidFor) == 0 {
+						// TODO error
+					}
+					addTransaction(chatID, *interaction.Transaction, db)
+					mes := tgbotapi.NewMessage(chatID, (*interaction.Transaction).String())
+					mes.ReplyMarkup = tgbotapi.NewHideKeyboard(true)
+					api.Send(mes)
+					return
+				default:
+					// TODO error
+					return
+				}
+			}
+
+			people := message.Text
+			contained := false
+			for _, p := range chatData.People {
+				if p == people {
+					contained = true
+					break
+				}
+			}
+
+			if !contained {
+				// TODO error message
+				return
+			}
+
+			db.Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$addToSet": bson.M{
+				"interactions.$.transaction.paid_for": people}})
+			interaction.Transaction.PaidFor = append(interaction.Transaction.PaidFor, people)
+			keyboard := keyboardWithPeople(chatData.People, interaction.Transaction)
+			// edit := tgbotapi.NewEditMessageReplyMarkup(chatID, interaction.LastMessage, keyboard)
+
+			mes := tgbotapi.NewMessage(chatID, "Who did "+interaction.Transaction.PaidBy+" pay for ?")
+			mes.ReplyMarkup = keyboard
+			api.Send(mes)
+
+		}
+
+	}
 }
 
-func sendPeoplePrompt(message tgbotapi.Message, api *tgbotapi.BotAPI, db *mgo.Collection) {
-	sent, _ := api.Send(newMessageForcedAnswer(message.Chat.ID, "Type the name of the people to add or /done"))
-	action := ReplyAction{MessageID: sent.MessageID, Action: "addPeople"}
-	addReplyAction(action, db)
-}
+// transaction != nil, will take only new, All and /done (if non empty)
+func keyboardWithPeople(people []string, transaction *Transaction) tgbotapi.ReplyKeyboardMarkup {
 
-func balanceForChat(chatID int64, db *mgo.Collection) (balances map[string]float64, err error) {
-	balances = make(map[string]float64)
-	
-	// retrieve the chat
-	chat := Chat{}
-	err = db.Find(bson.M{"chat_id": chatID}).One(&chat)
-	if err != nil {
-		return
-	}
-	
-	for _, people := range chat.People {
-		balances[people] = 0
-	}
-	
-	for _, transaction := range chat.Transactions {
-		balances[transaction.PaidBy] += transaction.Amount
-		part := transaction.Amount / float64(len(transaction.PaidFor))
+	alreadyPicked := func(pp string) bool {
+		if transaction == nil {
+			return false
+		}
 		for _, p := range transaction.PaidFor {
-			balances[p] -= part
+			if p == pp {
+				return true
+			}
+		}
+		return false
+
+	}
+
+	// create the answer keyboard with everybody
+	buttons := make([]tgbotapi.KeyboardButton, 0, len(people)+1)
+	for _, p := range people {
+		check := ""
+		if alreadyPicked(p) {
+			check = "\xE2\x9C\x85 "
+		}
+		buttons = append(buttons, tgbotapi.NewKeyboardButton(check+p))
+	}
+
+	if transaction != nil {
+		buttons = append([]tgbotapi.KeyboardButton{tgbotapi.NewKeyboardButton("/all")}, buttons...)
+		if len(transaction.PaidFor) != 0 {
+			buttons = append(buttons, tgbotapi.NewKeyboardButton("/done"))
 		}
 	}
-	
-	return
+	keyboard := tgbotapi.NewReplyKeyboard(buttons)
+
+	return keyboard
 }

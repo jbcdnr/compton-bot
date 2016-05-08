@@ -1,6 +1,8 @@
 package compton
 
 import (
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -12,28 +14,32 @@ type Transaction struct {
 	Date    time.Time `bson:"timestamp"`
 }
 
+func (t Transaction) String() string {
+	if len(t.PaidFor) == 0 {
+		// TODO error
+		return ""
+	}
+
+	all := strings.Join(t.PaidFor[0:len(t.PaidFor)-1], ", ")
+	if len(t.PaidFor) > 1 {
+		all += " and "
+	}
+	all += t.PaidFor[len(t.PaidFor)-1]
+
+	return fmt.Sprintf("%s paid %.2f$ for %s", t.PaidBy, t.Amount, all)
+}
+
 // Chat represents a money count for a group discussion
 type Chat struct {
 	ChatID       int64         `bson:"chat_id"`
 	People       []string      `bson:"people"`
 	Transactions []Transaction `bson:"transactions"`
+	Interactions []Interaction `bson:"interactions"`
 }
 
-type CallbacksHandler struct {
-	Replies   []ReplyAction    `bson:"replies"`
-	Callbacks []CallbackAction `bson:"callbacks"`
-}
-
-// TODO add timestamp for cleaning
-type ReplyAction struct {
-	MessageID   int         `bson:"message_id"`
-	Action      string      `bson:"action"`
-	Transaction Transaction `bson:"transaction"`
-}
-
-type CallbackAction struct {
-	MessageID   int         `bson:"message_id"`
-	Action      string      `bson:"action"`
-	ChatID      int64       `bson:"chat_id"`
-	Transaction Transaction `bson:"transaction"`
+type Interaction struct {
+	Author      int          `bson:"author"`
+	Type        string       `bson:"type"`
+	Transaction *Transaction `bson:"transaction"`
+	LastMessage int          `bson:"last_message"`
 }
