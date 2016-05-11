@@ -73,7 +73,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 						smallest = bal
 					}
 				}
-				
+
 				msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("%s should pay.", shouldPay))
 				msg.ReplyToMessageID = message.MessageID
 				api.Send(msg)
@@ -92,7 +92,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 				msg := tgbotapi.NewMessage(chatID, text)
 				msg.ReplyToMessageID = message.MessageID
 				api.Send(msg)
-				return 
+				return
 
 			case "paid":
 
@@ -204,7 +204,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 				"interactions.$.transaction.paid_by": people,
 				"interactions.$.type":                "paid/amount"}})
 
-			mes := tgbotapi.NewMessage(chatID, "How much did " + people + " pay ?")
+			mes := tgbotapi.NewMessage(chatID, "How much did "+people+" pay ?")
 			mes.ReplyToMessageID = message.MessageID
 			mes.ReplyMarkup = tgbotapi.ForceReply{ForceReply: true, Selective: true}
 			api.Send(mes)
@@ -258,12 +258,12 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 
 			people := message.Text
 			delete := false
-			
+
 			if strings.HasPrefix(people, "\xE2\x9C\x85 ") {
 				people = strings.TrimPrefix(people, "\xE2\x9C\x85 ")
 				delete = true
 			}
-			
+
 			contained := false
 			for _, p := range chatData.People {
 				if p == people {
@@ -279,7 +279,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 
 			if delete {
 				db.Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$pull": bson.M{
-				"interactions.$.transaction.paid_for": people}})
+					"interactions.$.transaction.paid_for": people}})
 				newPeople := make([]string, 0, len(interaction.Transaction.PaidFor))
 				for _, p := range interaction.Transaction.PaidFor {
 					if p != people {
@@ -289,10 +289,10 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 				interaction.Transaction.PaidFor = newPeople
 			} else {
 				db.Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$addToSet": bson.M{
-				"interactions.$.transaction.paid_for": people}})
+					"interactions.$.transaction.paid_for": people}})
 				interaction.Transaction.PaidFor = append(interaction.Transaction.PaidFor, people)
 			}
-			
+
 			keyboard := keyboardWithPeople(chatData.People, interaction.Transaction)
 			keyboard.Selective = true
 			mes := tgbotapi.NewMessage(chatID, "Who did "+interaction.Transaction.PaidBy+" pay for ?")
