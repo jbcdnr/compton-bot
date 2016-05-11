@@ -84,6 +84,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 					strs[i] = fmt.Sprintf("%d. %s", i+1, t)
 				}
 				api.Send(tgbotapi.NewMessage(chatID, strings.Join(strs, "\n")))
+				return 
 
 			case "addPurchase":
 
@@ -119,6 +120,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 				interaction.Type = "addPeople"
 				addInteractionToChat(interaction, chatID, db)
 				return
+			default:
 
 			}
 		}
@@ -133,6 +135,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 		}
 		if interaction == nil {
 			log.Printf("User replied to no question")
+			return
 			// TODO message failed
 		}
 
@@ -231,6 +234,13 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 			}
 
 			people := message.Text
+			delete := false
+			
+			if strings.HasPrefix(people, "\xE2\x9C\x85 ") {
+				people = strings.TrimPrefix(people, "\xE2\x9C\x85 ")
+				delete = true
+			}
+			
 			contained := false
 			for _, p := range chatData.People {
 				if p == people {
@@ -244,12 +254,23 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 				return
 			}
 
-			db.Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$addToSet": bson.M{
+			if delete {
+				db.Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$pull": bson.M{
 				"interactions.$.transaction.paid_for": people}})
-			interaction.Transaction.PaidFor = append(interaction.Transaction.PaidFor, people)
+				newPeople := make([]string, 0, len(interaction.Transaction.PaidFor))
+				for _, p := range interaction.Transaction.PaidFor {
+					if p != people {
+						newPeople = append(newPeople, p)
+					}
+				}
+				interaction.Transaction.PaidFor = newPeople
+			} else {
+				db.Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$addToSet": bson.M{
+				"interactions.$.transaction.paid_for": people}})
+				interaction.Transaction.PaidFor = append(interaction.Transaction.PaidFor, people)
+			}
+			
 			keyboard := keyboardWithPeople(chatData.People, interaction.Transaction)
-			// edit := tgbotapi.NewEditMessageReplyMarkup(chatID, interaction.LastMessage, keyboard)
-
 			mes := tgbotapi.NewMessage(chatID, "Who did "+interaction.Transaction.PaidBy+" pay for ?")
 			mes.ReplyMarkup = keyboard
 			api.Send(mes)
