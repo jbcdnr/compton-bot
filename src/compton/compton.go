@@ -73,8 +73,10 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 						smallest = bal
 					}
 				}
-
-				api.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("%s should pay.", shouldPay)))
+				
+				msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("%s should pay.", shouldPay))
+				msg.ReplyToMessageID = message.MessageID
+				api.Send(msg)
 				return
 
 			case "list":
@@ -83,13 +85,20 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 				for i, t := range chatData.Transactions {
 					strs[i] = fmt.Sprintf("%d. %s", i+1, t)
 				}
-				api.Send(tgbotapi.NewMessage(chatID, strings.Join(strs, "\n")))
+				text := strings.Join(strs, "\n")
+				if len(chatData.Transactions) == 0 {
+					text = "No transaction in the compton so far."
+				}
+				msg := tgbotapi.NewMessage(chatID, text)
+				msg.ReplyToMessageID = message.MessageID
+				api.Send(msg)
 				return 
 
 			case "addPurchase":
 
 				promptText := "Who paid the expense ?"
 				prompt := tgbotapi.NewMessage(update.Message.Chat.ID, promptText)
+				prompt.ReplyToMessageID = message.MessageID
 
 				// create the answer keyboard with everybody
 				buttons := make([]tgbotapi.KeyboardButton, 0, len(chatData.People))
@@ -97,6 +106,8 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 					buttons = append(buttons, tgbotapi.NewKeyboardButton(people))
 				}
 				keyboard := tgbotapi.NewReplyKeyboard(buttons)
+				keyboard.Selective = true
+				keyboard.OneTimeKeyboard = true
 				prompt.ReplyMarkup = keyboard
 
 				_, err := api.Send(prompt)
@@ -193,19 +204,24 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 				"interactions.$.transaction.paid_by": people,
 				"interactions.$.type":                "addPurchase/amount"}})
 
-			mes := tgbotapi.NewMessage(chatID, "How much did "+people+" pay ?")
-			mes.ReplyMarkup = tgbotapi.NewHideKeyboard(true)
+			mes := tgbotapi.NewMessage(chatID, "How much did " + people + " pay ?")
+			mes.ReplyToMessageID = message.MessageID
+			mes.ReplyMarkup = tgbotapi.ForceReply{ForceReply: true, Selective: true}
 			api.Send(mes)
 
 		case "addPurchase/amount":
 			amount, err := strconv.ParseFloat(message.Text, 64)
 			if err != nil {
 				log.Printf("Parse error: %s\n", err)
+				return
 				// TODO handle error
 			}
 
 			mes := tgbotapi.NewMessage(chatID, "Who did "+interaction.Transaction.PaidBy+" pay for ?")
-			mes.ReplyMarkup = keyboardWithPeople(chatData.People, interaction.Transaction)
+			mes.ReplyToMessageID = message.MessageID
+			keyboard := keyboardWithPeople(chatData.People, interaction.Transaction)
+			keyboard.Selective = true
+			mes.ReplyMarkup = keyboard
 			sent, err := api.Send(mes)
 
 			if err != nil {
@@ -230,6 +246,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 					}
 					addTransaction(chatID, *interaction.Transaction, db)
 					mes := tgbotapi.NewMessage(chatID, (*interaction.Transaction).String())
+					mes.ReplyToMessageID = message.MessageID
 					mes.ReplyMarkup = tgbotapi.NewHideKeyboard(true)
 					api.Send(mes)
 					return
@@ -277,7 +294,9 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 			}
 			
 			keyboard := keyboardWithPeople(chatData.People, interaction.Transaction)
+			keyboard.Selective = true
 			mes := tgbotapi.NewMessage(chatID, "Who did "+interaction.Transaction.PaidBy+" pay for ?")
+			mes.ReplyToMessageID = message.MessageID
 			mes.ReplyMarkup = keyboard
 			api.Send(mes)
 
