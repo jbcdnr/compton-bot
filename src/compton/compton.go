@@ -114,7 +114,9 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 			case "addPeople":
 
 				log.Println("addPeople received")
-				api.Send(tgbotapi.NewMessage(chatID, "Type the name of a person to add or /done."))
+				prompt := tgbotapi.NewMessage(chatID, "Type the name of a person to add or /done.")
+				prompt.ReplyMarkup = tgbotapi.ForceReply{ForceReply: true, Selective: true}
+				api.Send(prompt)
 				interaction := Interaction{}
 				interaction.Author = userID
 				interaction.Type = "addPeople"
@@ -165,7 +167,9 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 				addPeopleToChat(people, chatID, db)
 			}
 
-			api.Send(tgbotapi.NewMessage(chatID, "Type the name of another person to add or /done."))
+			prompt := tgbotapi.NewMessage(chatID, "Type the name of another person to add or /done.")
+			prompt.ReplyMarkup = tgbotapi.ForceReply{ForceReply: true, Selective: true}
+			api.Send(prompt)
 
 		case "addPurchase/paidBy":
 
