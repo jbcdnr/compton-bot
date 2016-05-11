@@ -94,7 +94,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 				api.Send(msg)
 				return 
 
-			case "addPurchase":
+			case "paid":
 
 				promptText := "Who paid the expense ?"
 				prompt := tgbotapi.NewMessage(update.Message.Chat.ID, promptText)
@@ -115,7 +115,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 				if err == nil {
 					interaction := Interaction{}
 					interaction.Author = userID
-					interaction.Type = "addPurchase/paidBy"
+					interaction.Type = "paid/paidBy"
 					interaction.Transaction = &Transaction{}
 					addInteractionToChat(interaction, chatID, db)
 				}
@@ -184,7 +184,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 			prompt.ReplyMarkup = tgbotapi.ForceReply{ForceReply: true, Selective: true}
 			api.Send(prompt)
 
-		case "addPurchase/paidBy":
+		case "paid/paidBy":
 
 			people := message.Text
 			contained := false
@@ -202,14 +202,14 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 
 			db.Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$set": bson.M{
 				"interactions.$.transaction.paid_by": people,
-				"interactions.$.type":                "addPurchase/amount"}})
+				"interactions.$.type":                "paid/amount"}})
 
 			mes := tgbotapi.NewMessage(chatID, "How much did " + people + " pay ?")
 			mes.ReplyToMessageID = message.MessageID
 			mes.ReplyMarkup = tgbotapi.ForceReply{ForceReply: true, Selective: true}
 			api.Send(mes)
 
-		case "addPurchase/amount":
+		case "paid/amount":
 			amount, err := strconv.ParseFloat(message.Text, 64)
 			if err != nil {
 				log.Printf("Parse error: %s\n", err)
@@ -230,10 +230,10 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 
 			db.Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$set": bson.M{
 				"interactions.$.transaction.amount": amount,
-				"interactions.$.type":               "addPurchase/paidFor",
+				"interactions.$.type":               "paid/paidFor",
 				"interactions.$.last_message":       sent.MessageID}})
 
-		case "addPurchase/paidFor":
+		case "paid/paidFor":
 
 			if message.IsCommand() {
 				switch message.Command() {
