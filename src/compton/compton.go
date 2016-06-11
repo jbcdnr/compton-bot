@@ -101,23 +101,20 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 				prompt.ReplyToMessageID = message.MessageID
 
 				// create the answer keyboard with everybody
-				buttons := make([]tgbotapi.KeyboardButton, 0, len(chatData.People))
-				for _, people := range chatData.People {
-					buttons = append(buttons, tgbotapi.NewKeyboardButton(people))
-				}
-				keyboard := tgbotapi.NewReplyKeyboard(buttons)
-				keyboard.Selective = true
-				keyboard.OneTimeKeyboard = true
+				keyboard := keyboardWithPeople(chatData.People, nil)
 				prompt.ReplyMarkup = keyboard
 
-				_, err := api.Send(prompt)
+				mess, err := api.Send(prompt)
 
 				if err == nil {
 					interaction := Interaction{}
 					interaction.Author = userID
 					interaction.Type = "paid/paidBy"
 					interaction.Transaction = &Transaction{}
+					interaction.LastMessage = mess.MessageID
 					addInteractionToChat(interaction, chatID, db)
+				} else {
+					// TODO error message
 				}
 
 				return
@@ -175,6 +172,8 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 			people := message.Text
 			if people == "" {
 				api.Send(tgbotapi.NewMessage(chatID, "The name must be non empty"))
+			} else if people[0] == '/' {
+				api.Send(tgbotapi.NewMessage(chatID, "The name must not start with '/'"))
 			} else {
 				addPeopleToChat(people, chatID, db)
 			}
@@ -184,9 +183,77 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 			prompt.ReplyMarkup = tgbotapi.ForceReply{ForceReply: true, Selective: true}
 			api.Send(prompt)
 
+		case "paid/amount":
+			amount, err := strconv.ParseFloat(message.Text, 64)
+			if err != nil {
+				log.Printf("Parse error: %s\n", err)
+				return
+				// TODO handle error
+			}
+
+			mes := tgbotapi.NewMessage(chatID, "Who did "+interaction.Transaction.PaidBy+" pay for ?")
+			mes.ReplyToMessageID = message.MessageID
+			keyboard := keyboardWithPeople(chatData.People, interaction.Transaction)
+			mes.ReplyMarkup = keyboard
+			sent, err := api.Send(mes)
+
+			if err != nil {
+				// TODO handle error
+			}
+
+			db.Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$set": bson.M{
+				"interactions.$.transaction.amount": amount,
+				"interactions.$.type":               "paid/paidFor",
+				"interactions.$.last_message":       sent.MessageID}})
+
+		}
+
+	}
+
+	if update.CallbackQuery != nil && update.CallbackQuery.Message != nil {
+
+		data := update.CallbackQuery.Data
+		answerToMessage := update.CallbackQuery.Message
+
+		chatID := answerToMessage.Chat.ID
+		userID := update.CallbackQuery.From.ID
+
+		// retrieve the chat information from DB or create it
+		chatData := Chat{}
+		err := db.Find(bson.M{"chat_id": chatID}).One(&chatData)
+		if err != nil {
+			empty := Chat{}
+			empty.ChatID = chatID
+			db.Upsert(
+				bson.M{"chat_id": chatID},
+				bson.M{"$setOnInsert": empty})
+			err = db.Find(bson.M{"chat_id": chatID}).One(&chatData)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+
+		_ = data
+		_ = answerToMessage
+
+		// handle interactions
+		var interaction *Interaction
+		for _, inter := range chatData.Interactions {
+			if inter.LastMessage == answerToMessage.MessageID {
+				interaction = &inter
+				break
+			}
+		}
+		if interaction == nil {
+			log.Printf("User replied to no question")
+			return
+			// TODO message failed
+		}
+		
+		switch interaction.Type {
 		case "paid/paidBy":
 
-			people := message.Text
+			people := data
 			contained := false
 			for _, p := range chatData.People {
 				if p == people {
@@ -205,58 +272,30 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 				"interactions.$.type":                "paid/amount"}})
 
 			mes := tgbotapi.NewMessage(chatID, "How much did "+people+" pay ?")
-			mes.ReplyToMessageID = message.MessageID
+			// mes.ReplyToMessageID = message.MessageID
 			mes.ReplyMarkup = tgbotapi.ForceReply{ForceReply: true, Selective: true}
 			api.Send(mes)
 
-		case "paid/amount":
-			amount, err := strconv.ParseFloat(message.Text, 64)
-			if err != nil {
-				log.Printf("Parse error: %s\n", err)
-				return
-				// TODO handle error
-			}
-
-			mes := tgbotapi.NewMessage(chatID, "Who did "+interaction.Transaction.PaidBy+" pay for ?")
-			mes.ReplyToMessageID = message.MessageID
-			keyboard := keyboardWithPeople(chatData.People, interaction.Transaction)
-			keyboard.Selective = true
-			mes.ReplyMarkup = keyboard
-			sent, err := api.Send(mes)
-
-			if err != nil {
-				// TODO handle error
-			}
-
-			db.Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$set": bson.M{
-				"interactions.$.transaction.amount": amount,
-				"interactions.$.type":               "paid/paidFor",
-				"interactions.$.last_message":       sent.MessageID}})
 
 		case "paid/paidFor":
 
-			if message.IsCommand() {
-				switch message.Command() {
-				case "all":
+				switch data {
+				case "/all":
 					interaction.Transaction.PaidFor = chatData.People
 					fallthrough
-				case "done":
+				case "/done":
 					if len(interaction.Transaction.PaidFor) == 0 {
 						// TODO error
 					}
 					addTransaction(chatID, *interaction.Transaction, db)
 					mes := tgbotapi.NewMessage(chatID, (*interaction.Transaction).String())
-					mes.ReplyToMessageID = message.MessageID
 					mes.ReplyMarkup = tgbotapi.NewHideKeyboard(true)
 					api.Send(mes)
 					return
 				default:
-					// TODO error
-					return
 				}
-			}
 
-			people := message.Text
+			people := data
 			delete := false
 
 			if strings.HasPrefix(people, "\xE2\x9C\x85 ") {
@@ -294,19 +333,14 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 			}
 
 			keyboard := keyboardWithPeople(chatData.People, interaction.Transaction)
-			keyboard.Selective = true
-			mes := tgbotapi.NewMessage(chatID, "Who did "+interaction.Transaction.PaidBy+" pay for ?")
-			mes.ReplyToMessageID = message.MessageID
-			mes.ReplyMarkup = keyboard
-			api.Send(mes)
+			api.Send(tgbotapi.NewEditMessageReplyMarkup(chatID, answerToMessage.MessageID, keyboard))
 
-		}
-
+	}
 	}
 }
 
 // transaction != nil, will take only new, All and /done (if non empty)
-func keyboardWithPeople(people []string, transaction *Transaction) tgbotapi.ReplyKeyboardMarkup {
+func keyboardWithPeople(people []string, transaction *Transaction) tgbotapi.InlineKeyboardMarkup {
 
 	alreadyPicked := func(pp string) bool {
 		if transaction == nil {
@@ -318,26 +352,29 @@ func keyboardWithPeople(people []string, transaction *Transaction) tgbotapi.Repl
 			}
 		}
 		return false
+	}
 
+	createRowButton := func(str string) []tgbotapi.InlineKeyboardButton {
+		return []tgbotapi.InlineKeyboardButton{tgbotapi.NewInlineKeyboardButtonData(str, str)}
 	}
 
 	// create the answer keyboard with everybody
-	buttons := make([]tgbotapi.KeyboardButton, 0, len(people)+1)
+	buttonRows := make([][]tgbotapi.InlineKeyboardButton, 0, len(people)+2)
 	for _, p := range people {
 		check := ""
 		if alreadyPicked(p) {
 			check = "\xE2\x9C\x85 "
 		}
-		buttons = append(buttons, tgbotapi.NewKeyboardButton(check+p))
+		buttonRows = append(buttonRows, createRowButton(check+p))
 	}
 
 	if transaction != nil {
-		buttons = append([]tgbotapi.KeyboardButton{tgbotapi.NewKeyboardButton("/all")}, buttons...)
+		buttonRows = append([][]tgbotapi.InlineKeyboardButton{createRowButton("/all")}, buttonRows...)
 		if len(transaction.PaidFor) != 0 {
-			buttons = append(buttons, tgbotapi.NewKeyboardButton("/done"))
+			buttonRows = append(buttonRows, createRowButton("/done"))
 		}
 	}
-	keyboard := tgbotapi.NewReplyKeyboard(buttons)
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(buttonRows...)
 
 	return keyboard
 }
