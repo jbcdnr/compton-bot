@@ -3,10 +3,10 @@ package compton
 import (
 	"fmt"
 	"github.com/go-telegram-bot-api/telegram-bot-api"
+	"github.com/soniah/evaler"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 	"log"
-	"strconv"
 	"strings"
 )
 
@@ -185,7 +185,13 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 			api.Send(prompt)
 
 		case "paid/amount":
-			amount, err := strconv.ParseFloat(message.Text, 64)
+			result, err := evaler.Eval(message.Text)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+
+			amount := evaler.BigratToFloat(result)
 			if err != nil {
 				log.Printf("Parse error: %s\n", err)
 				return
