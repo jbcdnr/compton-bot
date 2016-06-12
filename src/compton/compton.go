@@ -287,11 +287,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 
 		case "paid/paidFor":
 
-			switch data {
-			case "/all":
-				interaction.Transaction.PaidFor = chatData.People
-				fallthrough
-			case "/done":
+			if data == "/done" {
 				if len(interaction.Transaction.PaidFor) == 0 {
 					// TODO error
 				}
@@ -299,44 +295,54 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 				mes := tgbotapi.NewEditMessageText(chatID, interaction.LastMessage, (*interaction.Transaction).String())
 				api.Send(mes)
 				return
-			default:
 			}
 
-			people := data
-			delete := false
+			if data == "/all" {
+				interaction.Transaction.PaidFor = chatData.People
+				db.Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$set": bson.M{
+						"interactions.$.transaction.paid_for": chatData.People}})
+			} else if data == "/unall" {
+				interaction.Transaction.PaidFor = []string{}
+				db.Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$set": bson.M{
+						"interactions.$.transaction.paid_for": []string{}}})
+			} else {
 
-			if strings.HasPrefix(people, "\xE2\x9C\x85 ") {
-				people = strings.TrimPrefix(people, "\xE2\x9C\x85 ")
-				delete = true
-			}
+				people := data
+				delete := false
 
-			contained := false
-			for _, p := range chatData.People {
-				if p == people {
-					contained = true
-					break
+				if strings.HasPrefix(people, "\xE2\x9C\x85 ") {
+					people = strings.TrimPrefix(people, "\xE2\x9C\x85 ")
+					delete = true
 				}
-			}
 
-			if !contained {
-				// TODO error message
-				return
-			}
-
-			if delete {
-				db.Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$pull": bson.M{
-					"interactions.$.transaction.paid_for": people}})
-				newPeople := make([]string, 0, len(interaction.Transaction.PaidFor))
-				for _, p := range interaction.Transaction.PaidFor {
-					if p != people {
-						newPeople = append(newPeople, p)
+				contained := false
+				for _, p := range chatData.People {
+					if p == people {
+						contained = true
+						break
 					}
 				}
-				interaction.Transaction.PaidFor = newPeople
-			} else {
-				db.Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$addToSet": bson.M{
-					"interactions.$.transaction.paid_for": people}})
-				interaction.Transaction.PaidFor = append(interaction.Transaction.PaidFor, people)
+
+				if !contained {
+					// TODO error message
+					return
+				}
+
+				if delete {
+					db.Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$pull": bson.M{
+						"interactions.$.transaction.paid_for": people}})
+					newPeople := make([]string, 0, len(interaction.Transaction.PaidFor))
+					for _, p := range interaction.Transaction.PaidFor {
+						if p != people {
+							newPeople = append(newPeople, p)
+						}
+					}
+					interaction.Transaction.PaidFor = newPeople
+				} else {
+					db.Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$addToSet": bson.M{
+						"interactions.$.transaction.paid_for": people}})
+					interaction.Transaction.PaidFor = append(interaction.Transaction.PaidFor, people)
+				}
 			}
 
 			keyboard := keyboardWithPeople(chatData.People, interaction.Transaction)
@@ -367,16 +373,24 @@ func keyboardWithPeople(people []string, transaction *Transaction) tgbotapi.Inli
 
 	// create the answer keyboard with everybody
 	buttonRows := make([][]tgbotapi.InlineKeyboardButton, 0, len(people)+2)
+	picked, notPicked := 0, 0
 	for _, p := range people {
 		check := ""
 		if alreadyPicked(p) {
+			picked++
 			check = "\xE2\x9C\x85 "
+		} else {
+			notPicked++
 		}
 		buttonRows = append(buttonRows, createRowButton(check+p))
 	}
 
 	if transaction != nil {
-		buttonRows = append([][]tgbotapi.InlineKeyboardButton{createRowButton("/all")}, buttonRows...)
+		allButton := tgbotapi.NewInlineKeyboardButtonData("Select all", "/all")
+		if notPicked == 0 {
+			allButton = tgbotapi.NewInlineKeyboardButtonData("Unselect all", "/unall")
+		}
+		buttonRows = append([][]tgbotapi.InlineKeyboardButton{[]tgbotapi.InlineKeyboardButton{allButton}}, buttonRows...)
 		if len(transaction.PaidFor) != 0 {
 			buttonRows = append(buttonRows, createRowButton("/done"))
 		}
