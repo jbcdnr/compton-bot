@@ -112,6 +112,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 					interaction.Type = "paid/paidBy"
 					interaction.Transaction = &Transaction{}
 					interaction.LastMessage = mess.MessageID
+					interaction.InitialMessage = message.MessageID
 					addInteractionToChat(interaction, chatID, db)
 				} else {
 					// TODO error message
@@ -249,7 +250,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 			return
 			// TODO message failed
 		}
-		
+
 		switch interaction.Type {
 		case "paid/paidBy":
 
@@ -271,29 +272,29 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 				"interactions.$.transaction.paid_by": people,
 				"interactions.$.type":                "paid/amount"}})
 
-			mes := tgbotapi.NewMessage(chatID, "How much did "+people+" pay ?")
-			// mes.ReplyToMessageID = message.MessageID
+			mes := tgbotapi.NewMessage(chatID, fmt.Sprintf("How much did %s pay ?", people))
+			mes.ReplyToMessageID = interaction.InitialMessage
 			mes.ReplyMarkup = tgbotapi.ForceReply{ForceReply: true, Selective: true}
 			api.Send(mes)
 
+			api.Send(tgbotapi.NewEditMessageText(chatID, interaction.LastMessage, fmt.Sprintf("%s paid the expanse", people)))
 
 		case "paid/paidFor":
 
-				switch data {
-				case "/all":
-					interaction.Transaction.PaidFor = chatData.People
-					fallthrough
-				case "/done":
-					if len(interaction.Transaction.PaidFor) == 0 {
-						// TODO error
-					}
-					addTransaction(chatID, *interaction.Transaction, db)
-					mes := tgbotapi.NewMessage(chatID, (*interaction.Transaction).String())
-					mes.ReplyMarkup = tgbotapi.NewHideKeyboard(true)
-					api.Send(mes)
-					return
-				default:
+			switch data {
+			case "/all":
+				interaction.Transaction.PaidFor = chatData.People
+				fallthrough
+			case "/done":
+				if len(interaction.Transaction.PaidFor) == 0 {
+					// TODO error
 				}
+				addTransaction(chatID, *interaction.Transaction, db)
+				mes := tgbotapi.NewEditMessageText(chatID, interaction.LastMessage, (*interaction.Transaction).String())
+				api.Send(mes)
+				return
+			default:
+			}
 
 			people := data
 			delete := false
@@ -335,7 +336,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 			keyboard := keyboardWithPeople(chatData.People, interaction.Transaction)
 			api.Send(tgbotapi.NewEditMessageReplyMarkup(chatID, answerToMessage.MessageID, keyboard))
 
-	}
+		}
 	}
 }
 

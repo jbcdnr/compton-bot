@@ -42,4 +42,5 @@ type Interaction struct {
 	Type        string       `bson:"type"`
 	Transaction *Transaction `bson:"transaction"`
 	LastMessage int          `bson:"last_message"`
+	InitialMessage int          `bson:"initial_message"`
 }
