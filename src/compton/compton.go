@@ -93,6 +93,25 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 				msg.ReplyToMessageID = message.MessageID
 				api.Send(msg)
 				return
+			
+			case "currency":
+
+				msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("The currency is %s. Do you want to change ?", chatData.Currency))
+				msg.ReplyToMessageID = message.MessageID
+				yesNoKeyboard := tgbotapi.NewInlineKeyboardMarkup(tgbotapi.NewInlineKeyboardRow(tgbotapi.NewInlineKeyboardButtonData("Yes", "y"), tgbotapi.NewInlineKeyboardButtonData("No", "n")))
+				msg.ReplyMarkup = yesNoKeyboard
+				mess, err := api.Send(msg)
+
+				if err == nil {
+					interaction := Interaction{}
+					interaction.Author = userID
+					interaction.Type = "currency/prompt"
+					interaction.LastMessage = mess.MessageID
+					interaction.InitialMessage = message.MessageID
+					addInteractionToChat(interaction, chatID, db)
+				} else {
+					log.Println(err)
+				}
 
 			case "paid":
 
@@ -258,6 +277,51 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 		}
 
 		switch interaction.Type {
+		case "currency/prompt":
+
+			if data == "y" {
+				msg := tgbotapi.NewMessage(chatID, "Select the new currency...")
+				currenciesKeyboard := tgbotapi.NewInlineKeyboardMarkup(tgbotapi.NewInlineKeyboardRow(
+					tgbotapi.NewInlineKeyboardButtonData("$", "$"), 
+					tgbotapi.NewInlineKeyboardButtonData("€", "€"),
+					tgbotapi.NewInlineKeyboardButtonData("CHF", "CHF")))
+				msg.ReplyMarkup = currenciesKeyboard
+				mess, err := api.Send(msg)
+
+				if err == nil {
+					newInteraction := Interaction{}
+					newInteraction.Author = userID
+					newInteraction.Type = "currency/change"
+					newInteraction.LastMessage = mess.MessageID
+					newInteraction.InitialMessage = interaction.InitialMessage
+					addInteractionToChat(newInteraction, chatID, db)
+				} else {
+					log.Println(err)
+				}
+
+			} else {
+				txt := fmt.Sprintf("The currency is %s.", chatData.Currency)
+				api.Send(tgbotapi.NewEditMessageText(chatID, interaction.LastMessage, txt))
+			}
+		
+		case "currency/change":
+			availableCurrencies := []string{"€", "$", "CHF"}
+			ok := false
+			for _, curr := range availableCurrencies {
+				if curr == data {
+					ok = true
+				}
+			}
+
+			if ! ok {
+				api.Send(tgbotapi.NewMessage(chatID, "I don't know your new currency."))
+				return
+			}
+
+			db.Update(bson.M{"chat_id": chatID}, bson.M{"$set": bson.M{"currency": data}})
+
+			api.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("The new currency is %s.", data)))
+
 		case "paid/paidBy":
 
 			people := data

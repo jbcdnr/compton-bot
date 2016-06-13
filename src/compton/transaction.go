@@ -11,6 +11,8 @@ type Transaction struct {
 	Amount  float64   `bson:"amount"`
 	PaidBy  string    `bson:"paid_by"`
 	PaidFor []string  `bson:"paid_for"`
+	Currency string `bson:"currency"`
+	AmountChatCurrency float64 `bson:"amount_chat_currency"`
 	Date    time.Time `bson:"timestamp"`
 }
 
@@ -35,6 +37,7 @@ type Chat struct {
 	People       []string      `bson:"people"`
 	Transactions []Transaction `bson:"transactions"`
 	Interactions []Interaction `bson:"interactions"`
+	Currency		 string				 `bson:"currency"`
 }
 
 type Interaction struct {
