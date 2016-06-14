@@ -204,8 +204,34 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 			api.Send(prompt)
 
 		case "paid/amount":
-			result, err := evaler.Eval(message.Text)
+			amountText := message.Text
+			amountText = strings.TrimSpace(amountText)
+			amountText = strings.ToLower(amountText)
+
+			// get suffix currency if any
+			currency := chatData.Currency
+			if currency == "" {
+				currency = "$"
+			}
+
+			currencies := map[string]string{
+				"usd": "$", 
+				"$": "$", 
+				"eur": "€",
+				"€": "€",
+				"chf": "CHF"}
+
+			for currSymbol, currReal := range currencies {
+				if strings.HasSuffix(amountText, currSymbol) {
+					amountText = strings.TrimSuffix(amountText, currSymbol)
+					currency = currReal
+					break
+				}
+			}
+			
+			result, err := evaler.Eval(amountText)
 			if err != nil {
+				// TODO send error
 				log.Println(err)
 				return
 			}
@@ -229,6 +255,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 
 			db.Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$set": bson.M{
 				"interactions.$.transaction.amount": amount,
+				"interactions.$.transaction.currency": currency,
 				"interactions.$.type":               "paid/paidFor",
 				"interactions.$.last_message":       sent.MessageID}})
 

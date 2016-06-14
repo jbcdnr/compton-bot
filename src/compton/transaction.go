@@ -28,7 +28,7 @@ func (t Transaction) String() string {
 	}
 	all += t.PaidFor[len(t.PaidFor)-1]
 
-	return fmt.Sprintf("%s paid %.2f$ for %s", t.PaidBy, t.Amount, all)
+	return fmt.Sprintf("%s paid %.2f%s for %s", t.PaidBy, t.Amount, t.Currency, all)
 }
 
 // Chat represents a money count for a group discussion

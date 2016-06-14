@@ -1,4 +1,4 @@
-package main
+package compton
 
 import (
 	"encoding/json"
@@ -198,7 +198,7 @@ func getJson(url string, target interface{}) error {
 	return json.NewDecoder(r.Body).Decode(target)
 }
 
-func main() {
+func fetchCurrencies() {
 	rs := DateRate{}
 	err := getJson("https://openexchangerates.org/api/latest.json?app_id=7b42eb7fbc644d4ba1c3a885fd4a23ae", &rs)
 	if err != nil {
