@@ -38,8 +38,9 @@ func (chat Chat) balance() (balances map[string]float64) {
 	}
 
 	for _, transaction := range chat.Transactions {
-		balances[transaction.PaidBy] += transaction.Amount
-		part := transaction.Amount / float64(len(transaction.PaidFor))
+		convertedAmount, _ := convert(transaction.Amount, transaction.Currency, chat.Currency, transaction.Rates)
+		balances[transaction.PaidBy] += convertedAmount
+		part := convertedAmount / float64(len(transaction.PaidFor))
 		for _, p := range transaction.PaidFor {
 			balances[p] -= part
 		}

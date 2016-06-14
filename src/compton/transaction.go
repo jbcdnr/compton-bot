@@ -14,6 +14,7 @@ type Transaction struct {
 	Currency string `bson:"currency"`
 	AmountChatCurrency float64 `bson:"amount_chat_currency"`
 	Date    time.Time `bson:"timestamp"`
+	Rates   Rates     `bson:"rates"`
 }
 
 func (t Transaction) String() string {

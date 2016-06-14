@@ -6,10 +6,16 @@ import (
 	"net/http"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
+	"github.com/fatih/structs"
+	"time"
+	"fmt"
+	"errors"
 )
 
 type DateRate struct {
-	Timestamp int    `bson:"timestamp"`
+	Year int    `bson:"year"`
+	Month int    `bson:"month"`
+	Day int    `bson:"day"`
 	Base      string `bson:"base"`
 	Rates     Rates  `bson:"rates"`
 }
@@ -188,7 +194,7 @@ type Rates struct {
 	// ZWL float64 `bson:"ZWL"`
 }
 
-func getJson(url string, target interface{}) error {
+func getJSON(url string, target interface{}) error {
 	r, err := http.Get(url)
 	if err != nil {
 		return err
@@ -198,12 +204,21 @@ func getJson(url string, target interface{}) error {
 	return json.NewDecoder(r.Body).Decode(target)
 }
 
-func fetchCurrencies() {
-	rs := DateRate{}
-	err := getJson("https://openexchangerates.org/api/latest.json?app_id=7b42eb7fbc644d4ba1c3a885fd4a23ae", &rs)
+func currencyAtDate(date time.Time) (rs DateRate) {
+	url := fmt.Sprintf("https://openexchangerates.org/api/historical/%04d-%02d-%02d.json?app_id=7b42eb7fbc644d4ba1c3a885fd4a23ae",
+		date.Year(), date.Month(), date.Day())
+	err := getJSON(url, &rs)
 	if err != nil {
 		log.Fatal(err)
 	}
+	rs.Year = date.Year()
+	rs.Month = int(date.Month())
+	rs.Day = date.Day()
+	return
+}
+
+func fetchCurrenciesAtDate(date time.Time, db *mgo.Database) (rs DateRate) {
+	rs = currencyAtDate(time.Now())
 	log.Printf("Retrieved the following rates: %+v", rs)
 
   mongoSession, err := mgo.Dial("localhost:27017")
@@ -211,10 +226,29 @@ func fetchCurrencies() {
 		log.Fatal(err)
 	}
 	defer mongoSession.Close()
-  currencyDB := mongoSession.Copy().DB("test").C("currency")
-  err = currencyDB.Update(bson.M{}, bson.M{"$push": bson.M{"rates": rs}})
+  err = db.C("currency").Update(bson.M{}, bson.M{"$push": bson.M{"rates": rs}})
   if err != nil {
     log.Fatal(err)
   }
   log.Println("Successfully updated the currency database.")
+	return
+}
+
+func convert(amount float64, from, to string, rates Rates) (newAmount float64, err error) {
+	mapItUp := map[string]string{"€": "EUR", "$": "USD", "CHF": "CHF"}
+
+	ratesMap := structs.Map(rates)
+	f, ok := ratesMap[mapItUp[from]]
+	if ! ok {
+		err = errors.New("Did not find currency " + from)
+		return 
+	}
+	t, ok := ratesMap[mapItUp[to]]
+	if ! ok {
+		err = errors.New("Did not find currency " + to)
+		return 
+	}
+	rate := t.(float64) / f.(float64)
+	newAmount = amount * rate
+	return
 }

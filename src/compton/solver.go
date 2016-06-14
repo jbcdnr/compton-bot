@@ -3,7 +3,6 @@ package compton
 import (
   "math"
   "sort"
-  "log"
 )
 
 type Pair struct {
@@ -42,7 +41,6 @@ func findOptimalArrangment(balances map[string]float64) map[string][]Pair {
   sort.Sort(ByAmount(giver))
   
   for len(giver) > 0 {
-    log.Println(giver, receiver)
     if giver[0].Amount <= receiver[0].Amount {
       reimbursments[giver[0].People] = append(reimbursments[giver[0].People], Pair{receiver[0].People, giver[0].Amount})
       receiver[0].Amount -= giver[0].Amount

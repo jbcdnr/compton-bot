@@ -11,7 +11,7 @@ import (
 )
 
 // HandleUpdate take care of the update
-func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collection) {
+func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Database) {
 
 	if update.Message != nil {
 
@@ -21,14 +21,14 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 
 		// retrieve the chat information from DB or create it
 		chatData := Chat{}
-		err := db.Find(bson.M{"chat_id": chatID}).One(&chatData)
+		err := db.C("transactions").Find(bson.M{"chat_id": chatID}).One(&chatData)
 		if err != nil {
 			empty := Chat{}
 			empty.ChatID = chatID
-			db.Upsert(
+			db.C("transactions").Upsert(
 				bson.M{"chat_id": chatID},
 				bson.M{"$setOnInsert": empty})
-			err = db.Find(bson.M{"chat_id": chatID}).One(&chatData)
+			err = db.C("transactions").Find(bson.M{"chat_id": chatID}).One(&chatData)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -44,7 +44,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 
 				strs := make([]string, 0, len(balance))
 				for people, bal := range balance {
-					strs = append(strs, fmt.Sprintf("- %s: %.2f$", people, bal))
+					strs = append(strs, fmt.Sprintf("- %s: %.2f%s", people, bal, chatData.Currency))
 				}
 				message := strings.Join(strs, "\n")
 				api.Send(tgbotapi.NewMessage(chatID, message))
@@ -56,7 +56,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 				strs := make([]string, 0, 20)
 				for giver, pairs := range reimbursment {
 					for _, pair := range pairs {
-						strs = append(strs, fmt.Sprintf("- %s gives %.2f$ to %s", giver, pair.Amount, pair.People))
+						strs = append(strs, fmt.Sprintf("- %s gives %.2f%s to %s", giver, pair.Amount, chatData.Currency, pair.People))
 					}
 				}
 				api.Send(tgbotapi.NewMessage(chatID, strings.Join(strs, "\n")))
@@ -108,7 +108,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 					interaction.Type = "currency/prompt"
 					interaction.LastMessage = mess.MessageID
 					interaction.InitialMessage = message.MessageID
-					addInteractionToChat(interaction, chatID, db)
+					addInteractionToChat(interaction, chatID, db.C("transactions"))
 				} else {
 					log.Println(err)
 				}
@@ -132,7 +132,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 					interaction.Transaction = &Transaction{}
 					interaction.LastMessage = mess.MessageID
 					interaction.InitialMessage = message.MessageID
-					addInteractionToChat(interaction, chatID, db)
+					addInteractionToChat(interaction, chatID, db.C("transactions"))
 				} else {
 					// TODO error message
 				}
@@ -149,7 +149,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 				interaction := Interaction{}
 				interaction.Author = userID
 				interaction.Type = "addPeople"
-				addInteractionToChat(interaction, chatID, db)
+				addInteractionToChat(interaction, chatID, db.C("transactions"))
 				return
 			default:
 
@@ -184,7 +184,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 					api.Send(tgbotapi.NewMessage(chatID, "The list of people in the compton is:\n"+all))
 				}
 
-				removeInteractionsForUser(chatID, userID, db)
+				removeInteractionsForUser(chatID, userID, db.C("transactions"))
 
 				return
 			}
@@ -195,7 +195,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 			} else if people[0] == '/' {
 				api.Send(tgbotapi.NewMessage(chatID, "The name must not start with '/'"))
 			} else {
-				addPeopleToChat(people, chatID, db)
+				addPeopleToChat(people, chatID, db.C("transactions"))
 			}
 
 			prompt := tgbotapi.NewMessage(chatID, "Type the name of another person to add or /done.")
@@ -217,7 +217,11 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 			currencies := map[string]string{
 				"usd": "$", 
 				"$": "$", 
+				"dollars": "$", 
+				"dollar": "$", 
 				"eur": "€",
+				"euro": "€",
+				"euros": "€",
 				"€": "€",
 				"chf": "CHF"}
 
@@ -253,7 +257,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 				// TODO handle error
 			}
 
-			db.Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$set": bson.M{
+			db.C("transactions").Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$set": bson.M{
 				"interactions.$.transaction.amount": amount,
 				"interactions.$.transaction.currency": currency,
 				"interactions.$.type":               "paid/paidFor",
@@ -273,14 +277,14 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 
 		// retrieve the chat information from DB or create it
 		chatData := Chat{}
-		err := db.Find(bson.M{"chat_id": chatID}).One(&chatData)
+		err := db.C("transactions").Find(bson.M{"chat_id": chatID}).One(&chatData)
 		if err != nil {
 			empty := Chat{}
 			empty.ChatID = chatID
-			db.Upsert(
+			db.C("transactions").Upsert(
 				bson.M{"chat_id": chatID},
 				bson.M{"$setOnInsert": empty})
-			err = db.Find(bson.M{"chat_id": chatID}).One(&chatData)
+			err = db.C("transactions").Find(bson.M{"chat_id": chatID}).One(&chatData)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -321,7 +325,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 					newInteraction.Type = "currency/change"
 					newInteraction.LastMessage = mess.MessageID
 					newInteraction.InitialMessage = interaction.InitialMessage
-					addInteractionToChat(newInteraction, chatID, db)
+					addInteractionToChat(newInteraction, chatID, db.C("transactions"))
 				} else {
 					log.Println(err)
 				}
@@ -345,7 +349,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 				return
 			}
 
-			db.Update(bson.M{"chat_id": chatID}, bson.M{"$set": bson.M{"currency": data}})
+			db.C("transactions").Update(bson.M{"chat_id": chatID}, bson.M{"$set": bson.M{"currency": data}})
 
 			api.Send(tgbotapi.NewMessage(chatID, fmt.Sprintf("The new currency is %s.", data)))
 
@@ -365,7 +369,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 				return
 			}
 
-			db.Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$set": bson.M{
+			db.C("transactions").Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$set": bson.M{
 				"interactions.$.transaction.paid_by": people,
 				"interactions.$.type":                "paid/amount"}})
 
@@ -382,7 +386,18 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 				if len(interaction.Transaction.PaidFor) == 0 {
 					// TODO error
 				}
-				addTransaction(chatID, *interaction.Transaction, db)
+				tx := *interaction.Transaction
+				r := DateRate{}
+				err := db.C("currency").
+					Find(bson.M{"year": tx.Date.Year(), "month": tx.Date.Month(), "day": tx.Date.Day()}).
+					Select(bson.M{"rates": 1}).
+					One(&r)
+				if err == mgo.ErrNotFound {
+					r = fetchCurrenciesAtDate(tx.Date, db)
+				}
+				tx.Rates = r.Rates
+
+				addTransaction(chatID, tx, db.C("transactions"))
 				mes := tgbotapi.NewEditMessageText(chatID, interaction.LastMessage, (*interaction.Transaction).String())
 				api.Send(mes)
 				return
@@ -390,11 +405,11 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 
 			if data == "/all" {
 				interaction.Transaction.PaidFor = chatData.People
-				db.Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$set": bson.M{
+				db.C("transactions").Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$set": bson.M{
 						"interactions.$.transaction.paid_for": chatData.People}})
 			} else if data == "/unall" {
 				interaction.Transaction.PaidFor = []string{}
-				db.Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$set": bson.M{
+				db.C("transactions").Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$set": bson.M{
 						"interactions.$.transaction.paid_for": []string{}}})
 			} else {
 
@@ -420,7 +435,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 				}
 
 				if delete {
-					db.Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$pull": bson.M{
+					db.C("transactions").Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$pull": bson.M{
 						"interactions.$.transaction.paid_for": people}})
 					newPeople := make([]string, 0, len(interaction.Transaction.PaidFor))
 					for _, p := range interaction.Transaction.PaidFor {
@@ -430,7 +445,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Collecti
 					}
 					interaction.Transaction.PaidFor = newPeople
 				} else {
-					db.Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$addToSet": bson.M{
+					db.C("transactions").Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$addToSet": bson.M{
 						"interactions.$.transaction.paid_for": people}})
 					interaction.Transaction.PaidFor = append(interaction.Transaction.PaidFor, people)
 				}

@@ -61,13 +61,13 @@ func main() {
 
 	updateHandler := func() {
 		defer wg.Done()
-		mongoDocument := mongoSession.Copy().DB("test").C("compton")
+		mongo := mongoSession.Copy().DB("test")
 		for {
 			select {
 			case <-closed:
 				return
 			case update := <-updatesChanel:
-				compton.HandleUpdate(update, api, mongoDocument)
+				compton.HandleUpdate(update, api, mongo)
 			}
 		}
 	}
