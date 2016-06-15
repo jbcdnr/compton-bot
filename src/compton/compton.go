@@ -94,7 +94,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Database
 				msg.ReplyToMessageID = message.MessageID
 				api.Send(msg)
 				return
-			
+
 			case "currency":
 
 				msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("The currency is %s. Do you want to change ?", chatData.Currency))
@@ -216,15 +216,15 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Database
 			}
 
 			currencies := map[string]string{
-				"usd": "$", 
-				"$": "$", 
-				"dollars": "$", 
-				"dollar": "$", 
-				"eur": "€",
-				"euro": "€",
-				"euros": "€",
-				"€": "€",
-				"chf": "CHF"}
+				"usd":     "$",
+				"$":       "$",
+				"dollars": "$",
+				"dollar":  "$",
+				"eur":     "€",
+				"euro":    "€",
+				"euros":   "€",
+				"€":       "€",
+				"chf":     "CHF"}
 
 			for currSymbol, currReal := range currencies {
 				if strings.HasSuffix(amountText, currSymbol) {
@@ -233,7 +233,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Database
 					break
 				}
 			}
-			
+
 			result, err := evaler.Eval(amountText)
 			if err != nil {
 				// TODO send error
@@ -259,10 +259,10 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Database
 			}
 
 			db.C("transactions").Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$set": bson.M{
-				"interactions.$.transaction.amount": amount,
+				"interactions.$.transaction.amount":   amount,
 				"interactions.$.transaction.currency": currency,
-				"interactions.$.type":               "paid/paidFor",
-				"interactions.$.last_message":       sent.MessageID}})
+				"interactions.$.type":                 "paid/paidFor",
+				"interactions.$.last_message":         sent.MessageID}})
 
 		}
 
@@ -314,7 +314,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Database
 			if data == "y" {
 				msg := tgbotapi.NewMessage(chatID, "Select the new currency...")
 				currenciesKeyboard := tgbotapi.NewInlineKeyboardMarkup(tgbotapi.NewInlineKeyboardRow(
-					tgbotapi.NewInlineKeyboardButtonData("$", "$"), 
+					tgbotapi.NewInlineKeyboardButtonData("$", "$"),
 					tgbotapi.NewInlineKeyboardButtonData("€", "€"),
 					tgbotapi.NewInlineKeyboardButtonData("CHF", "CHF")))
 				msg.ReplyMarkup = currenciesKeyboard
@@ -335,7 +335,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Database
 				txt := fmt.Sprintf("The currency is %s.", chatData.Currency)
 				api.Send(tgbotapi.NewEditMessageText(chatID, interaction.LastMessage, txt))
 			}
-		
+
 		case "currency/change":
 			availableCurrencies := []string{"€", "$", "CHF"}
 			ok := false
@@ -345,7 +345,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Database
 				}
 			}
 
-			if ! ok {
+			if !ok {
 				api.Send(tgbotapi.NewMessage(chatID, "I don't know your new currency."))
 				return
 			}
@@ -408,11 +408,11 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Database
 			if data == "/all" {
 				interaction.Transaction.PaidFor = chatData.People
 				db.C("transactions").Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$set": bson.M{
-						"interactions.$.transaction.paid_for": chatData.People}})
+					"interactions.$.transaction.paid_for": chatData.People}})
 			} else if data == "/unall" {
 				interaction.Transaction.PaidFor = []string{}
 				db.C("transactions").Update(bson.M{"chat_id": chatID, "interactions.author": userID}, bson.M{"$set": bson.M{
-						"interactions.$.transaction.paid_for": []string{}}})
+					"interactions.$.transaction.paid_for": []string{}}})
 			} else {
 
 				people := data

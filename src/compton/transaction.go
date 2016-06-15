@@ -8,15 +8,14 @@ import (
 
 // Transaction represents a purchase paid by someone for other people
 type Transaction struct {
-	Amount  float64   `bson:"amount"`
-	PaidBy  string    `bson:"paid_by"`
-	PaidFor []string  `bson:"paid_for"`
-	Currency string `bson:"currency"`
-	AmountChatCurrency float64 `bson:"amount_chat_currency"`
-	Date    time.Time `bson:"timestamp"`
-	Rates   Rates     `bson:"rates"`
+	Amount             float64   `bson:"amount"`
+	PaidBy             string    `bson:"paid_by"`
+	PaidFor            []string  `bson:"paid_for"`
+	Currency           string    `bson:"currency"`
+	AmountChatCurrency float64   `bson:"amount_chat_currency"`
+	Date               time.Time `bson:"timestamp"`
+	Rates              Rates     `bson:"rates"`
 }
-
 
 func (t Transaction) String() string {
 	if len(t.PaidFor) == 0 {
@@ -39,13 +38,13 @@ type Chat struct {
 	People       []string      `bson:"people"`
 	Transactions []Transaction `bson:"transactions"`
 	Interactions []Interaction `bson:"interactions"`
-	Currency		 string				 `bson:"currency"`
+	Currency     string        `bson:"currency"`
 }
 
 type Interaction struct {
-	Author      int          `bson:"author"`
-	Type        string       `bson:"type"`
-	Transaction *Transaction `bson:"transaction"`
-	LastMessage int          `bson:"last_message"`
+	Author         int          `bson:"author"`
+	Type           string       `bson:"type"`
+	Transaction    *Transaction `bson:"transaction"`
+	LastMessage    int          `bson:"last_message"`
 	InitialMessage int          `bson:"initial_message"`
 }

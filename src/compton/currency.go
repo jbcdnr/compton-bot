@@ -2,21 +2,21 @@ package compton
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"github.com/fatih/structs"
+	"gopkg.in/mgo.v2"
 	"log"
 	"net/http"
-	"gopkg.in/mgo.v2"
-	"github.com/fatih/structs"
 	"time"
-	"fmt"
-	"errors"
 )
 
 type DateRate struct {
-	Year int    `bson:"year"`
+	Year  int    `bson:"year"`
 	Month int    `bson:"month"`
-	Day int    `bson:"day"`
-	Base      string `bson:"base"`
-	Rates     Rates  `bson:"rates"`
+	Day   int    `bson:"day"`
+	Base  string `bson:"base"`
+	Rates Rates  `bson:"rates"`
 }
 
 type Rates struct {
@@ -220,16 +220,16 @@ func fetchCurrenciesAtDate(date time.Time, db *mgo.Database) (rs DateRate) {
 	rs = currencyAtDate(time.Now())
 	log.Printf("Retrieved the following rates: %+v", rs)
 
-  mongoSession, err := mgo.Dial("localhost:27017")
+	mongoSession, err := mgo.Dial("localhost:27017")
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer mongoSession.Close()
-  err = db.C("currency").Insert(rs)
-  if err != nil {
-    log.Fatal(err)
-  }
-  log.Println("Successfully updated the currency database.")
+	err = db.C("currency").Insert(rs)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("Successfully updated the currency database.")
 	return
 }
 
@@ -238,14 +238,14 @@ func convert(amount float64, from, to string, rates Rates) (newAmount float64, e
 
 	ratesMap := structs.Map(rates)
 	f, ok := ratesMap[mapItUp[from]]
-	if ! ok {
+	if !ok {
 		err = errors.New("Did not find currency " + from)
-		return 
+		return
 	}
 	t, ok := ratesMap[mapItUp[to]]
-	if ! ok {
+	if !ok {
 		err = errors.New("Did not find currency " + to)
-		return 
+		return
 	}
 	rate := t.(float64) / f.(float64)
 	newAmount = amount * rate
