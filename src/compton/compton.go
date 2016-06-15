@@ -8,6 +8,7 @@ import (
 	"gopkg.in/mgo.v2/bson"
 	"log"
 	"strings"
+	"time"
 )
 
 // HandleUpdate take care of the update
@@ -387,6 +388,7 @@ func HandleUpdate(update tgbotapi.Update, api *tgbotapi.BotAPI, db *mgo.Database
 					// TODO error
 				}
 				tx := *interaction.Transaction
+				tx.Date = time.Now()
 				r := DateRate{}
 				err := db.C("currency").
 					Find(bson.M{"year": tx.Date.Year(), "month": tx.Date.Month(), "day": tx.Date.Day()}).

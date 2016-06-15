@@ -5,7 +5,6 @@ import (
 	"log"
 	"net/http"
 	"gopkg.in/mgo.v2"
-	"gopkg.in/mgo.v2/bson"
 	"github.com/fatih/structs"
 	"time"
 	"fmt"
@@ -226,7 +225,7 @@ func fetchCurrenciesAtDate(date time.Time, db *mgo.Database) (rs DateRate) {
 		log.Fatal(err)
 	}
 	defer mongoSession.Close()
-  err = db.C("currency").Update(bson.M{}, bson.M{"$push": bson.M{"rates": rs}})
+  err = db.C("currency").Insert(rs)
   if err != nil {
     log.Fatal(err)
   }

@@ -17,6 +17,7 @@ type Transaction struct {
 	Rates   Rates     `bson:"rates"`
 }
 
+
 func (t Transaction) String() string {
 	if len(t.PaidFor) == 0 {
 		// TODO error
